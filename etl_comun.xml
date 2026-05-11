@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE etl SYSTEM "http://scriptella.javaforge.com/dtd/etl.dtd">
+<etl>
+	<description>
+		COMUN
+	</description>
+
+	<properties>
+		<include href="./../conexiones.properties"/>
+	</properties>
+
+	<connection
+		id        = "bi.comun"
+		driver    = "$bi.comun.driver"
+		url       = "$bi.comun.url"
+		user      = "$bi.comun.user"
+		password  = "$bi.comun.password"
+		classpath = "$bi.comun.classpath"
+	/>
+
+
+	<!-- LDAP. Hay una limitacion de número de registros a 1000 -->
+	<connection
+		id        = "ldap"
+		driver    = "$ldap.driver"
+		url       = "$ldap.url"
+		user      = "$ldap.user"
+		password  = "$ldap.password"
+>
+		search.scope		= $ldap.search.scope
+		search.basedn		= $ldap.search.basedn
+		search.countlimit	= $ldap.search.countlimit
+	</connection>
+	
+	<query connection-id="bi.comun"> 
+		SELECT getdate() AS inicio_carga;
+		<script connection-id="bi.comun">
+			<!--BEGIN TRANSACTION;-->
+			INSERT INTO ejecuciones_etl (etl, inicio_carga) 
+			VALUES ('etl_comun.xml',?inicio_carga); 
+			<!--COMMIT TRANSACTION; -->	
+		</script>
+	</query>
+
+
+	<!-- ######################################### -->
+	<!--   Conectamos a LDAP y rellenamos tabla dim_usuarios_ldap   -->
+	<!-- ######################################### -->
+
+	<query connection-id="bi.comun">
+	<!-- CARGA_LDAP es el valor que indica si vamos a ejecutar la query -->
+	<!-- SOLO cargamos datos a las 3 horas -->
+		SELECT CASE WHEN datepart(hour,getdate()) = 3 THEN 1
+					ELSE 0 END AS CARGA_LDAP;
+
+		<script connection-id="bi.comun" if="CARGA_LDAP==1">
+			TRUNCATE TABLE dim_usuarios_ldap;
+		</script>
+
+		<query connection-id="bi.comun" if="CARGA_LDAP==1">
+			<!-- Como no permite cargar mas de 1000 registros utilizamos la tabla letras para repartir la carga de los usuarios por el último caracter  -->
+			<!-- (letra del NIF). Hay unos 300 registros por letra  -->
+			SELECT letra from letras;
+
+			<query connection-id="ldap">
+
+				(&#38;(objectCategory=person)(objectClass=user)(sAMAccountName=*$letra)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+
+				<script connection-id="bi.comun">
+				
+					<!-- displayName es nombre completo -->
+					<!-- name es nombre completo -->
+					<!-- cn es nombre completo -->
+					<!-- userPrincipalName es email -->
+					<!-- distinguishedName es CN=nombre completo,OU=Usuarios,OU=CAS_GENERAL,OU=SAN,DC=cs,DC=san,DC=gva,DC=es-->
+					<!-- description es MEDICO/A URGENCIA HOSPITALARIA -->
+					<!-- sAMAccountName es DNI -->
+					
+					<![CDATA[
+					INSERT INTO dim_usuarios_ldap (sAMAccountName, cn, userPrincipalName, distinguishedName, pwdlastset, 
+						mail, accountExpires, Description, lastLogonTimestamp, logonCount, givenName, createTimeStamp, 
+						modifyTimeStamp, whenCreated, whenChanged, extensionAttribute11, extensionAttribute12, 
+						extensionAttribute13, department, physicalDeliveryOfficeName, name, lastLogon, lockoutTime,
+						telephoneNumber, sn, company, displayName) ) 
+					VALUES (?sAMAccountName, ?cn, ?userPrincipalName, ?distinguishedName, ?pwdlastset, 
+						?mail, ?accountExpires, ?Description, ?lastLogonTimestamp, ?logonCount, ?givenName, ?createTimeStamp, 
+						?modifyTimeStamp, ?whenCreated, ?whenChanged, ?extensionAttribute11, ?extensionAttribute12, 
+						?extensionAttribute13, ?department, ?physicalDeliveryOfficeName, ?name, ?lastLogon, ?lockoutTime,
+						?telephoneNumber, ?sn, ?company,?displayName);
+					]]>
+				</script>	
+				
+			</query>
+		</query>
+	</query>	
+	<!-- ######################################### -->
+	<!--   FIN LDAP                                -->
+	<!-- ######################################### -->	
+
+
+
+	<!-- Fecha actualización BD Comun	-->	
+	<query connection-id="bi.comun" if="true"> 
+		SELECT getdate() as fecha_actual
+
+		<script connection-id="bi.comun">
+			UPDATE fecha_actualizacion
+			SET    fecha_actualizacion = ?fecha_actual; 
+			
+			UPDATE d02BI_COMUN.dbo.ejecuciones_etl  SET fin_carga=?fecha_actual
+			WHERE etl='etl_comun.xml' and fin_carga is null
+				and not exists (select * 
+								FROM d02BI_COMUN.dbo.ejecuciones_etl e2
+								WHERE e2.etl='etl_comun.xml' and e2.fin_carga is null and e2.inicio_carga>ejecuciones_etl.inicio_carga);
+								
+		</script>		
+	</query>
+	
+</etl>
+				

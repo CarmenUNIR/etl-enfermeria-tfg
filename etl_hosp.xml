@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE etl SYSTEM "http://scriptella.javaforge.com/dtd/etl.dtd">
+<etl>
+	<description>
+		HOSP
+		2021-05-09 
+	</description>
+
+	<properties>
+		<include href="./../conexiones.properties"/>
+	</properties>
+
+	<!-- Conexión con la BD d02BI_HOSP, en el SQL Server 10.192.152.227 -->
+	<connection
+		id        = "bi.hosp"
+		driver    = "$bi.hosp.driver"
+		url       = "$bi.hosp.url"
+		user      = "$bi.hosp.user"
+		password  = "$bi.hosp.password"
+		classpath = "$bi.hosp.classpath"
+	/>
+
+	<connection
+		id        = "bi.comun"
+		driver    = "$bi.comun.driver"
+		url       = "$bi.comun.url"
+		user      = "$bi.comun.user"
+		password  = "$bi.comun.password"
+		classpath = "$bi.comun.classpath"
+	/>
+
+	<!-- ORION HDR Informix -->
+	<connection
+		id        = "orion.clinic.pro"
+		driver    = "$orion.clinic.pro.driver"
+		url       = "$orion.clinic.pro.url"
+		user      = "$orion.clinic.pro.user"
+		password  = "$orion.clinic.pro.password"
+		classpath = "$orion.clinic.pro.classpath"
+	/>
+
+	<!-- ORION no HDR Informix -->
+	<connection
+		id        = "orion.clinic.pro2"
+		driver    = "$orion.clinic.pro2.driver"
+		url       = "$orion.clinic.pro2.url"
+		user      = "$orion.clinic.pro2.user"
+		password  = "$orion.clinic.pro2.password"
+		classpath = "$orion.clinic.pro2.classpath"
+	/>
+	
+	<query connection-id="bi.comun"> 
+		SELECT getdate() AS inicio_carga;
+		<script connection-id="bi.comun">
+			<!--BEGIN TRANSACTION; -->
+			INSERT INTO ejecuciones_etl (etl, inicio_carga) 
+			VALUES ('etl_hosp.xml',?inicio_carga); 
+			<!--COMMIT TRANSACTION; -->	
+		</script>
+	</query>
+
+
+	<script connection-id="bi.hosp" if="true">
+		truncate table h_informe_lesiones;
+		truncate table h_trat_pautados_interv_colaboracion;
+		truncate table h_registros_administracion_nut_enteral;
+	</script>
+		
+		
+	<!-- QUERY 14 -->
+	<query connection-id="bi.hosp"> 
+	<!-- ¿Cuantos dias cargamos????
+	    *el primer dia del año a las 1 de la mañana cargamos 366 días
+		*el día 1 de julio a las 1 de la mañana cargamos 366 días
+		*el PRIMER DIA DEL MES a las 1 de la mañana 180 días
+		*los LUNES a las 1 de la mañana 60 días
+		*de martes a sábado a las 1 de la mañana 30 días
+		*el resto de dias y horas 1 día
+	-->
+		SELECT CASE WHEN datepart(day,getdate()) = 1 AND datepart(month,getdate()) = 1 AND datepart(hour,getdate()) = 1 THEN 366
+					WHEN datepart(day,getdate()) = 1 AND datepart(month,getdate()) = 7 AND datepart(hour,getdate()) = 1 THEN 366
+					WHEN datepart(day,getdate()) = 1 AND datepart(hour,getdate()) = 1 THEN 180
+					WHEN datepart(weekday,getdate()) = 1 AND datepart(hour,getdate()) = 1 THEN 60   <!-- 4 min 33 seg -->
+					WHEN datepart(weekday,getdate()) != 1 AND datepart(hour,getdate()) = 1 THEN 30  <!-- 11 min 5 seg -->
+					WHEN datepart(weekday,getdate()) = 6 AND datepart(hour,getdate()) = 1 THEN 60   <!-- los sábados (para cargar datos de sip) 4 min 33 seg -->
+			
+					<!-- WHEN 1=1 then 60 -->
+					ELSE 1 END AS dias_a_cargar;	 <!-- 1 min 10 seg --> 	
+					
+		<query connection-id="orion.clinic.pro" if="true"> 
+			select cent_procedencia_key, dest_alta_orion, 
+				epi_ini_episodio, epi_fecha_alta, epi_fecha_alta_admin, epi_cierre_episodio, episodios.epi_key, '' as epi_observaciones,
+				epi_sospecha_diag, esta_epi_key, ctma_desc as estado_episodio,
+				mot_alta_key, numicu, episodios.paci_key, secc_ori_key, serv_dest_orion,
+				pacientes.paci_nd, pacientes.paci_sip, pacientes.paci_nombre, pacientes.paci_primer_apellido, 
+				pacientes.paci_segundo_apellido, pacientes.paci_sexo,
+				lineas_tratamiento.litr_obs_del_prescriptor,
+				lineas_tratamiento.litr_fecha_inicio,
+				lineas_tratamiento.litr_fecha_firma,
+				lineas_tratamiento.litr_fecha_fin,
+				hojas_tratamiento.hotr_suspendida,
+				maestro_protocolos_prescripcion.mapp_descripcion,
+				maestro_protocolos_prescripcion.mapp_nombre,
+				lineas_tratamiento.nemo_key_principal,
+				lineas_tratamiento.litr_key,
+				lineas_tratamiento.litr_is_validada,
+				nemonicos.nemo_short_desc,
+				nemonicos.nemo_nombre, lt_intervenciones_colaboracion.ltin_descripcion,
+				CASE when nemo_short_desc like "%INSULINA%" or mapp_descripcion like "%INSULINA%" or UPPER(ltin_descripcion) like "%GLUCEMIA%" then "INSULINA"
+					 when UPPER(ltin_descripcion) like '%BIBE%' then 'BIBERÓN'
+					 when UPPER(ltin_descripcion) like '%ALIMENTACI%' then 'ALIMENTACIÓN'
+					ELSE "OTROS" END AS tipo_intervencion,
+				ltmg_dosif_variable
+			from episodios 
+					inner join pacientes on episodios.paci_key=pacientes.paci_key
+					inner join orion_dba.campos_tablas_maestras on episodios.esta_epi_key=campos_tablas_maestras.ctma_key
+					inner join orion_dba.lineas_tratamiento on lineas_tratamiento.epi_key=episodios.epi_key
+					inner join hojas_tratamiento on lineas_tratamiento.hotr_key=hojas_tratamiento.hotr_key
+					left join lt_intervenciones_colaboracion on lineas_tratamiento.litr_key=lt_intervenciones_colaboracion.litr_key
+					left join protocolos_presc_insertados on protocolos_presc_insertados.prpi_key=lineas_tratamiento.prpi_key
+					left join orion_dba.maestro_protocolos_prescripcion on maestro_protocolos_prescripcion.mapp_key=protocolos_presc_insertados.mapp_key
+					left join nemonicos on lineas_tratamiento.nemo_key_principal=nemonicos.nemo_key
+					left join lt_medicacion_general on lt_medicacion_general.litr_key=lineas_tratamiento.litr_key
+			where tipo_epi_key="TEPIHOSP" and esta_epi_key not in ("EE12","EE23") 
+			and epi_ini_episodio > "2023-01-01 00:00:00"    
+			and (nemo_short_desc like "%INSULINA%" or mapp_descripcion like "%INSULINA%" or UPPER(ltin_descripcion) like "%GLUCEMIA%" 
+							or UPPER(ltin_descripcion) like "%CURA PICC%" or UPPER(ltin_descripcion) like "%VENDAJE COMPRESIVO%"
+							or UPPER(ltin_descripcion) like "%CURA LINEA MEDIA%" or UPPER(ltin_descripcion) like "%CURA CATETER VENOSO CENTRAL%"
+							or UPPER(ltin_descripcion) like "%CURA CVC%"
+							or UPPER(ltin_descripcion) like "%CURA RESERVORIO%"
+							or UPPER(ltin_descripcion) like '%BIBE%'
+							or UPPER(ltin_descripcion) like '%ALIMENTACI%')
+			and lineas_tratamiento.tltr_key in (4,5) and lineas_tratamiento.litr_is_historico=0
+			and lineas_tratamiento.eltr_key not in (20, 21, 27, 30)
+			and (lineas_tratamiento.litr_is_validada=1 or lineas_tratamiento.nemo_key_principal is null) 
+			and date(lineas_tratamiento.litr_fecha_inicio) &lt;= today
+			;
+			<!--
+			
+			-->
+			<script connection-id="bi.hosp">
+				INSERT INTO h_trat_pautados_interv_colaboracion (cent_procedencia_key, dest_alta_orion, epi_ini_episodio, 
+						epi_fecha_alta, epi_fecha_alta_admin, epi_cierre_episodio, epi_key, epi_observaciones, epi_sospecha_diag, 
+						esta_epi_key, estado_episodio, mot_alta_key, numicu, paci_key, secc_ori_key, serv_dest_orion, 
+						paci_nd, paci_sip, paci_nombre, paci_primer_apellido, paci_segundo_apellido, paci_sexo, litr_obs_del_prescriptor, 
+						litr_fecha_inicio, litr_fecha_firma, litr_fecha_fin, hotr_suspendida, mapp_descripcion, mapp_nombre, 
+						nemo_key_principal, litr_key, litr_is_validada, nemo_short_desc, nemo_nombre, ltin_descripcion, 
+						tipo_intervencion, ltmg_dosif_variable)
+				VALUES(
+					   ?cent_procedencia_key, ?dest_alta_orion, ?epi_ini_episodio, 
+						?epi_fecha_alta, ?epi_fecha_alta_admin, ?epi_cierre_episodio, ?epi_key, ?epi_observaciones, ?epi_sospecha_diag, 
+						?esta_epi_key, ?estado_episodio, ?mot_alta_key, ?numicu, ?paci_key, ?secc_ori_key, ?serv_dest_orion, 
+						?paci_nd, ?paci_sip, ?paci_nombre, ?paci_primer_apellido, ?paci_segundo_apellido, ?paci_sexo, ?litr_obs_del_prescriptor, 
+						?litr_fecha_inicio, ?litr_fecha_firma, ?litr_fecha_fin, ?hotr_suspendida, ?mapp_descripcion, ?mapp_nombre, 
+						?nemo_key_principal, ?litr_key, ?litr_is_validada, ?nemo_short_desc, ?nemo_nombre, ?ltin_descripcion, 
+						?tipo_intervencion, ?ltmg_dosif_variable
+					   );	
+			</script>
+		</query>
+		
+		
+		<query connection-id="orion.clinic.pro" if="true"> 
+			select episodios.epi_key, lineas_tratamiento.litr_key, lineas_tratamiento.nemo_key_principal, nemonicos.nemo_short_desc,    
+				nemonicos.nemo_nombre, registros_administracion.read_fecha_registro_administracion,    
+				date(registros_administracion.read_fecha_registro_administracion) as read_fecha_registro_administracion_date, lineas_tratamiento.litr_dosis_medic,    
+				lineas_tratamiento.litr_obs_del_prescriptor, ud3.undo_long_desc as undo_long_desc_nemo, ltin_descripcion, pautas.paut_dia, 
+				pautas.paut_hora, pautas.paut_dosis, ud4.undo_long_desc as undo_long_desc_pauta, pacientes.paci_sip
+			from episodios        
+			inner join pacientes on episodios.paci_key=pacientes.paci_key       
+			inner join orion_dba.campos_tablas_maestras on episodios.esta_epi_key=campos_tablas_maestras.ctma_key        
+			inner join orion_dba.lineas_tratamiento on lineas_tratamiento.epi_key=episodios.epi_key        
+			inner join hojas_tratamiento on lineas_tratamiento.hotr_key=hojas_tratamiento.hotr_key                
+			inner join nemonicos on lineas_tratamiento.nemo_key_principal=nemonicos.nemo_key        
+			
+			left join registros_administracion on lineas_tratamiento.litr_key=registros_administracion.litr_key                
+					and registros_administracion.erad_key &lt;> 9                 
+					and date(registros_administracion.read_fecha_registro_administracion)=today        
+			left join orion_dba.unidades_dosis ud3 on nemonicos.unit_key_cant_posologia = ud3.undo_key        
+			left join lt_intervenciones_colaboracion on lineas_tratamiento.litr_key=lt_intervenciones_colaboracion.litr_key        
+			left join pautas_tratamiento on lineas_tratamiento.litr_key=pautas_tratamiento.litr_key and (patr_fecha_fin is null or patr_fecha_fin>today)         
+			left join pautas on pautas_tratamiento.patr_key=pautas.patr_key and pautas.paut_hora=registros_administracion.read_hora_prevista_administracion               
+			   and (
+					(weekday(registros_administracion.read_fecha_registro_administracion)=0 and pautas.paut_dia="Domingo")                      
+					or                     (weekday(registros_administracion.read_fecha_registro_administracion)=1 and pautas.paut_dia="Lunes")     
+					or                     (weekday(registros_administracion.read_fecha_registro_administracion)=2 and pautas.paut_dia="Martes")   
+					or                     (weekday(registros_administracion.read_fecha_registro_administracion)=3 and pautas.paut_dia="Miércoles")    
+					or                     (weekday(registros_administracion.read_fecha_registro_administracion)=4 and pautas.paut_dia="Jueves")                   
+					or                     (weekday(registros_administracion.read_fecha_registro_administracion)=5 and pautas.paut_dia="Viernes")    
+					or                     (weekday(registros_administracion.read_fecha_registro_administracion)=6 and pautas.paut_dia="Sábado")                     
+				   )           
+			left join orion_dba.unidades_dosis ud4 on pautas_tratamiento.patr_unit_dosis = ud4.undo_key 
+			where tipo_epi_key="TEPIHOSP"
+					and esta_epi_key not in ("EE12","EE23") and epi_ini_episodio > "2013-01-01 00:00:00" and episodios.epi_fecha_alta_admin is null 
+					and nemo_tipo_medicacion=40 and lineas_tratamiento.tltr_key=15 and lineas_tratamiento.litr_is_historico=0 and lineas_tratamiento.eltr_key&lt;>21 
+					and (lineas_tratamiento.litr_is_validada=1 or lineas_tratamiento.nemo_key_principal is null) 
+					and date(lineas_tratamiento.litr_fecha_inicio) &lt;= today 
+					and (lineas_tratamiento.litr_fecha_fin is null or lineas_tratamiento.litr_fecha_fin>current)
+
+			<script connection-id="bi.hosp">	
+				INSERT INTO h_registros_administracion_nut_enteral
+					(
+						epi_key, litr_key, nemo_key_principal, nemo_short_desc, nemo_nombre,
+						read_fecha_registro_administracion, read_fecha_registro_administracion_date, litr_dosis_medic, litr_obs_del_prescriptor,
+						undo_long_desc_nemo, ltin_descripcion, paut_dia, paut_hora,
+						paut_dosis, undo_long_desc_pauta, paci_sip
+					)
+					VALUES
+					(
+						?epi_key, ?litr_key, ?nemo_key_principal, ?nemo_short_desc, ?nemo_nombre,
+						?read_fecha_registro_administracion, ?read_fecha_registro_administracion_date, ?litr_dosis_medic, ?litr_obs_del_prescriptor,
+						?undo_long_desc_nemo, ?ltin_descripcion, ?paut_dia, ?paut_hora,
+						?paut_dosis, ?undo_long_desc_pauta, ?paci_sip
+					)
+			</script>
+		</query>		
+
+
+	</query>
+	
+	<!-- Informes lesiones (úlceras) -->
+	<query connection-id="orion.clinic.pro2" if="true">
+		
+		SELECT cel.cuen_les_key, uil.uinfles_key, 
+			lotofile(cast (uinfles_xml as TEXT), concat('/home/informes_lesiones/', concat(uil.uinfles_key, '.txt!')), 'client') as filename,
+			uil.uinfles_fecha, uil.prof_key
+		from episodios 
+			inner join informes i ON episodios.epi_key=i.epi_key
+			inner join cuidados_enfermeria ce on ce.informe_key=i.informe_key
+			inner join cuidados_enfermeria_lesiones cel ON cel.cuen_key=ce.cuen_key
+			inner join uhd_informe_lesiones uil on uil.cuen_les_key=cel.cuen_les_key
+		where tipo_epi_key="TEPIHOSP" and esta_epi_key not in ("EE12","EE23") 
+			and epi_ini_episodio > "2023-01-01 00:00:00"
+			and cuen_les_eliminado=0 and cel.cuen_fecha_cierre is null
+			
+		<script connection-id="bi.hosp">
+		<![CDATA[
+		INSERT INTO h_informe_lesiones
+			(cuen_les_key, uinfles_key, uinfles_fecha, prof_key)
+		VALUES 
+			(?cuen_les_key, ?uinfles_key, ?uinfles_fecha, ?prof_key)
+		]]>			
+		</script>
+		
+		
+	</query>
+
+
+
+	
+	<query connection-id="bi.hosp" if="true">
+		SELECT uinfles_key, concat('/home/informes_lesiones/', concat( uinfles_key, '.txt')) as fichero
+		FROM h_informe_lesiones
+		
+		<script connection-id="bi.hosp">
+		
+			<![CDATA[
+			UPDATE h_informe_lesiones 
+			SET uinfles_xml= ?{textfile fichero}, 
+				uinfles_xml2= ?{file fichero}  
+			WHERE uinfles_key=?uinfles_key;
+			
+			]]>	
+		</script>	
+	</query>
+	
+	
+	<!-- Fecha actualización BD Comun	-->	
+	<query connection-id="bi.comun" if="true"> 
+		SELECT getdate() as fecha_actual
+		<script connection-id="bi.hosp">	
+			UPDATE fecha_actualizacion
+			SET    fecha_actualizacion = ?fecha_actual; 
+		</script>	
+		
+		<script connection-id="bi.comun">
+			UPDATE fecha_actualizacion
+			SET    fecha_actualizacion = ?fecha_actual; 
+			UPDATE d02BI_COMUN.dbo.ejecuciones_etl  SET fin_carga=?fecha_actual
+			WHERE etl='etl_hosp.xml' and fin_carga is null
+				and not exists (select * 
+								FROM d02BI_COMUN.dbo.ejecuciones_etl e2
+								WHERE e2.etl='etl_hosp.xml' and e2.fin_carga is null and e2.inicio_carga>ejecuciones_etl.inicio_carga);
+								
+		</script>		
+	</query>
+	
+</etl>

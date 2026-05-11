@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE etl SYSTEM "http://scriptella.javaforge.com/dtd/etl.dtd">
+<etl>
+	<description>
+		Auditoria logins informes
+	</description>
+
+	<properties>
+		<include href="./../conexiones.properties"/>
+	</properties>
+	
+	<connection
+		id        = "bi.comun"
+		driver    = "$bi.comun.driver"
+		url       = "$bi.comun.url"
+		user      = "$bi.comun.user"
+		password  = "$bi.comun.password"
+		classpath = "$bi.comun.classpath"
+	/>
+	
+	<connection
+		id        = "bi.reportserver"
+		driver    = "$bi.reportserver.driver"
+		url       = "$bi.reportserver.url"
+		user      = "$bi.reportserver.user"
+		password  = "$bi.reportserver.password"
+		classpath = "$bi.reportserver.classpath"
+	/>
+
+	<query connection-id="bi.comun"> 
+		SELECT getdate() AS inicio_carga;
+		<script connection-id="bi.comun">
+			<!--BEGIN TRANSACTION;	-->
+			INSERT INTO d02BI_COMUN.dbo.ejecuciones_etl (etl, inicio_carga) 
+			VALUES ('etl_auditoria.xml',?inicio_carga); 
+			<!--COMMIT TRANSACTION; -->
+		</script>
+	</query>
+
+<!--	<script connection-id="bi.comun">
+			TRUNCATE TABLE aud_logs_reports;
+			TRUNCATE TABLE aud_logs_cargas;
+	</script> -->
+
+
+	<!-- REGISTROS ACCESOS INFORMES SERVIDOR -->
+	<query connection-id="bi.reportserver" if="true"> 
+		
+		SELECT els.LogEntryId, substring(els.UserName,4,11) as DNI, c.Name as nombre_informe, c.path,  
+			   els.Format as formatoArchivo, els.requestType, els.Status, els.TimeStart, els.TimeEnd,
+			   case when datepart([hour], [timeStart])=8 then 1 
+				 when datepart([hour], [timeStart])=9 then 2 
+				 when datepart([hour], [timeStart])=10 then 3 
+				 when datepart([hour], [timeStart])=11 then 4
+				 when datepart([hour], [timeStart])=12 then 5 
+				 when datepart([hour], [timeStart])=13 then 6
+				 when datepart([hour], [timeStart])=14 then 7 
+				 when datepart([hour], [timeStart])=15 then 8 
+				 when datepart([hour], [timeStart])=16 then 9 
+				 when datepart([hour], [timeStart])=17 then 10 
+				 when datepart([hour], [timeStart])=18 then 11 
+				 when datepart([hour], [timeStart])=19 then 12 
+				 when datepart([hour], [timeStart])=20 then 13 
+				 when datepart([hour], [timeStart])=21 then 14 
+				 when datepart([hour], [timeStart])=22 then 15 
+				 when datepart([hour], [timeStart])=23 then 16 
+				 when datepart([hour], [timeStart])=0 then 17 
+				 when datepart([hour], [timeStart])=1 then 18
+				 when datepart([hour], [timeStart])=2 then 19
+				 when datepart([hour], [timeStart])=3 then 20 
+				 when datepart([hour], [timeStart])=4 then 21
+				 when datepart([hour], [timeStart])=5 then 22
+				 when datepart([hour], [timeStart])=6 then 23
+				 when datepart([hour], [timeStart])=7 then 24
+				 else 0 end as n_horas, 
+				 els.reportAction
+		FROM ExecutionLogStorage els 
+			LEFT JOIN Catalog c on c.ItemID = els.ReportID
+		WHERE els.Format = 'PBIX' 
+			
+			and (c.path not like '%Pruebas%' and c.path not like '%OLD%')
+			and els.reportAction = 13
+		ORDER BY timeStart DESC	
+<!--	and convert(nvarchar(50), timeEnd, 102) = CONVERT (date, SYSDATETIME()) -->		
+		<script connection-id="bi.comun">
+		        DELETE FROM aud_logs_reports WHERE logEntryId = ?logEntryId;
+				INSERT INTO aud_logs_reports (logEntryId, DNI, nombre_informe, path, formatoArchivo, requestType, Status, timeStart, timeEnd, n_horas, reportAction)
+				VALUES  (?logEntryId, ?DNI, ?nombre_informe, ?path, ?formatoArchivo, ?requestType, ?Status,?timeStart, ?timeEnd, ?n_horas, ?reportAction);
+			
+		</script>			
+	</query>
+	
+	
+	<!-- REGISTROS CARGAS INFORMES -->
+	<query connection-id="bi.reportserver" if="true"> 
+		
+		SELECT els.ExecutionId as execid, els.LogEntryId, substring(els.UserName,4,11) as DNI, c.Name as nombre_informe, c.path,  
+			   els.Format as formatoArchivo, els.requestType, els.Status, els.TimeStart, els.TimeEnd,
+			   case when datepart([hour], [timeStart])=8 then 1 
+				 when datepart([hour], [timeStart])=9 then 2 
+				 when datepart([hour], [timeStart])=10 then 3 
+				 when datepart([hour], [timeStart])=11 then 4
+				 when datepart([hour], [timeStart])=12 then 5 
+				 when datepart([hour], [timeStart])=13 then 6
+				 when datepart([hour], [timeStart])=14 then 7 
+				 when datepart([hour], [timeStart])=15 then 8 
+				 when datepart([hour], [timeStart])=16 then 9 
+				 when datepart([hour], [timeStart])=17 then 10 
+				 when datepart([hour], [timeStart])=18 then 11 
+				 when datepart([hour], [timeStart])=19 then 12 
+				 when datepart([hour], [timeStart])=20 then 13 
+				 when datepart([hour], [timeStart])=21 then 14 
+				 when datepart([hour], [timeStart])=22 then 15 
+				 when datepart([hour], [timeStart])=23 then 16 
+				 when datepart([hour], [timeStart])=0 then 17 
+				 when datepart([hour], [timeStart])=1 then 18
+				 when datepart([hour], [timeStart])=2 then 19
+				 when datepart([hour], [timeStart])=3 then 20 
+				 when datepart([hour], [timeStart])=4 then 21
+				 when datepart([hour], [timeStart])=5 then 22
+				 when datepart([hour], [timeStart])=6 then 23
+				 when datepart([hour], [timeStart])=7 then 24
+				 else 0 end as n_horas, 
+				 els.reportAction
+		FROM ExecutionLogStorage els 
+			LEFT JOIN Catalog c on c.ItemID = els.ReportID
+		WHERE els.Format = 'DataModel' 
+			and (c.path not like '%Pruebas%' and c.path not like '%OLD%')
+			
+		ORDER BY timeStart DESC	
+<!--	and convert(nvarchar(50), timeEnd, 102) = CONVERT (date, SYSDATETIME()) -->		
+		<script connection-id="bi.comun">
+				DELETE FROM aud_logs_cargas WHERE logEntryId = ?logEntryId;
+				INSERT INTO aud_logs_cargas (ExecutionId, logEntryId, DNI, nombre_informe, path, formatoArchivo, requestType, Status, timeStart, timeEnd, n_horas, reportAction)
+				VALUES  (?execid, ?logEntryId, ?DNI, ?nombre_informe, ?path, ?formatoArchivo, ?requestType, ?Status,?timeStart, ?timeEnd, ?n_horas, ?reportAction);
+			
+		</script>			
+	</query>
+	
+	<query connection-id="bi.comun" if="true"> 
+	SELECT getdate() as fecha_actual;
+
+	<script connection-id="bi.comun">
+	
+		UPDATE d02BI_COMUN.dbo.ejecuciones_etl  SET fin_carga=?fecha_actual
+		WHERE etl='etl_auditoria.xml' and fin_carga is null
+			and not exists (select * 
+							FROM d02BI_COMUN.dbo.ejecuciones_etl e2
+							WHERE e2.etl='etl_auditoria.xml' and e2.fin_carga is null and e2.inicio_carga>ejecuciones_etl.inicio_carga);	
+		<!-- INSERT INTO d02BI_COMUN.dbo.ejecuciones_etl (etl, fin_carga) 
+		VALUES ('etl_auditoria.xml',?fecha_actual);	-->
+	</script>		
+</query>
+
+
+</etl>
+				
+				
+				
+<!-- Hay 2 tipos de solicitud y acciones de elementos posteriores:
+Interactivo:siempre que se esté viendo un informe.
+	-ASModelStream:cuando el modelo de datos se transmite a Analysis Services desde el catálogo.
+	-ConceptualSchema: cuando el usuario hace clic en ver el informe.
+	-QueryData: siempre que se soliciten datos al cliente.
+Actualizar caché:siempre que se haya ejecutado un plan de actualización de programación.
+	-ASModelStream: siempre que el modelo de datos se transmita a Analysis Services desde el catálogo.
+	-DataRefresh: siempre que se actualicen datos de uno o más orígenes de datos.
+	-SaveToCatalog: siempre que el modelo de datos se guarde de nuevo en el catálogo.-->
