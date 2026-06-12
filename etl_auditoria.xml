@@ -37,12 +37,6 @@
 		</script>
 	</query>
 
-<!--	<script connection-id="bi.comun">
-			TRUNCATE TABLE aud_logs_reports;
-			TRUNCATE TABLE aud_logs_cargas;
-	</script> -->
-
-
 	<!-- REGISTROS ACCESOS INFORMES SERVIDOR -->
 	<query connection-id="bi.reportserver" if="true"> 
 		
@@ -81,7 +75,7 @@
 			and (c.path not like '%Pruebas%' and c.path not like '%OLD%')
 			and els.reportAction = 13
 		ORDER BY timeStart DESC	
-<!--	and convert(nvarchar(50), timeEnd, 102) = CONVERT (date, SYSDATETIME()) -->		
+	
 		<script connection-id="bi.comun">
 		        DELETE FROM aud_logs_reports WHERE logEntryId = ?logEntryId;
 				INSERT INTO aud_logs_reports (logEntryId, DNI, nombre_informe, path, formatoArchivo, requestType, Status, timeStart, timeEnd, n_horas, reportAction)
@@ -128,7 +122,7 @@
 			and (c.path not like '%Pruebas%' and c.path not like '%OLD%')
 			
 		ORDER BY timeStart DESC	
-<!--	and convert(nvarchar(50), timeEnd, 102) = CONVERT (date, SYSDATETIME()) -->		
+
 		<script connection-id="bi.comun">
 				DELETE FROM aud_logs_cargas WHERE logEntryId = ?logEntryId;
 				INSERT INTO aud_logs_cargas (ExecutionId, logEntryId, DNI, nombre_informe, path, formatoArchivo, requestType, Status, timeStart, timeEnd, n_horas, reportAction)
@@ -147,8 +141,6 @@
 			and not exists (select * 
 							FROM d02BI_COMUN.dbo.ejecuciones_etl e2
 							WHERE e2.etl='etl_auditoria.xml' and e2.fin_carga is null and e2.inicio_carga>ejecuciones_etl.inicio_carga);	
-		<!-- INSERT INTO d02BI_COMUN.dbo.ejecuciones_etl (etl, fin_carga) 
-		VALUES ('etl_auditoria.xml',?fecha_actual);	-->
 	</script>		
 </query>
 
@@ -157,12 +149,12 @@
 				
 				
 				
-<!-- Hay 2 tipos de solicitud y acciones de elementos posteriores:
+<!-- NOTA: Hay 2 tipos de solicitud y acciones de elementos posteriores:
 Interactivo:siempre que se esté viendo un informe.
-	-ASModelStream:cuando el modelo de datos se transmite a Analysis Services desde el catálogo.
-	-ConceptualSchema: cuando el usuario hace clic en ver el informe.
+	-ASModelStream:cuando el modelo de datos se transmite a Analysis Services desde el catálogo. reportAction = 15
+	-ConceptualSchema: cuando el usuario hace clic en ver el informe. reportAction = 13
 	-QueryData: siempre que se soliciten datos al cliente.
 Actualizar caché:siempre que se haya ejecutado un plan de actualización de programación.
 	-ASModelStream: siempre que el modelo de datos se transmita a Analysis Services desde el catálogo.
-	-DataRefresh: siempre que se actualicen datos de uno o más orígenes de datos.
-	-SaveToCatalog: siempre que el modelo de datos se guarde de nuevo en el catálogo.-->
+	-DataRefresh: siempre que se actualicen datos de uno o más orígenes de datos. reportAction = 19 
+	-SaveToCatalog: siempre que el modelo de datos se guarde de nuevo en el catálogo. reportAction = 18 -->
